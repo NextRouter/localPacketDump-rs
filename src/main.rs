@@ -2,20 +2,27 @@ use axum::{routing::get, Router};
 use lazy_static::lazy_static;
 use pcap::{Capture, Device};
 use pnet::packet::ethernet::{EtherTypes, EthernetPacket};
-use pnet::packet::ip::IpNextHeaderProtocols;
 use pnet::packet::ipv4::Ipv4Packet;
-use pnet::packet::tcp::TcpPacket;
-use pnet::packet::udp::UdpPacket;
 use pnet::packet::Packet;
-use prometheus::{Encoder, Gauge, GaugeVec, Opts, Registry, TextEncoder};
+use prometheus::{Encoder, GaugeVec, Opts, Registry, TextEncoder};
 use reqwest;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::net::Ipv4Addr;
 use std::sync::{Arc, Mutex};
-use std::time::{Duration, Instant};
+use std::time::Duration;
 use tokio::time;
 use tracing::{error, info};
+
+// ローカルサブネットの定義（CIDR形式で指定）
+const LOCAL_SUBNETS: &[&str] = &[
+    "10.40.0.0/24",
+    // 必要に応じて追加
+    // "192.168.1.0/24",
+    // "172.16.0.0/16",
+];
+
+const VERSION: &str = "1.0.0";
 
 lazy_static! {
     static ref REGISTRY: Registry = Registry::new();
@@ -58,6 +65,36 @@ struct NicConfig {
 struct StatusResponse {
     config: NicConfig,
     mappings: HashMap<String, String>,
+}
+
+#[derive(Debug, Clone)]
+struct LocalSubnets {
+    subnets: Vec<ipnet::Ipv4Net>,
+}
+
+impl LocalSubnets {
+    fn new() -> Self {
+        Self {
+            subnets: Vec::new(),
+        }
+    }
+
+    fn add_subnet(&mut self, subnet: &str) -> Result<(), Box<dyn std::error::Error>> {
+        let net: ipnet::Ipv4Net = subnet.parse()?;
+        self.subnets.push(net);
+        Ok(())
+    }
+
+    fn is_local(&self, ip: &str) -> bool {
+        if let Ok(addr) = ip.parse::<Ipv4Addr>() {
+            for subnet in &self.subnets {
+                if subnet.contains(&addr) {
+                    return true;
+                }
+            }
+        }
+        false
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -115,14 +152,13 @@ async fn metrics_handler() -> String {
     String::from_utf8(buffer).unwrap()
 }
 
-async fn update_metrics(stats: Arc<Mutex<TrafficStats>>, status: Arc<Mutex<StatusResponse>>) {
+async fn update_metrics(stats: Arc<Mutex<TrafficStats>>, _status: Arc<Mutex<StatusResponse>>) {
     let mut interval = time::interval(Duration::from_secs(1));
 
     loop {
         interval.tick().await;
 
         let mut stats_guard = stats.lock().unwrap();
-        let status_guard = status.lock().unwrap();
 
         // Update per-IP metrics
         for (key, &bytes) in &stats_guard.tx_bytes {
@@ -165,6 +201,7 @@ fn capture_packets(
     interface_name: String,
     stats: Arc<Mutex<TrafficStats>>,
     status: Arc<Mutex<StatusResponse>>,
+    local_subnets: Arc<LocalSubnets>,
 ) {
     tokio::task::spawn_blocking(move || {
         let device = Device::list()
@@ -200,7 +237,7 @@ fn capture_packets(
                                 // RX: local IP is destination
 
                                 // Check if source is local (TX)
-                                if is_local_ip(&src_ip) {
+                                if local_subnets.is_local(&src_ip) {
                                     let nic = get_nic_for_ip(&src_ip, &status_guard);
                                     let key = format!("{}:{}", nic, src_ip);
                                     let mut stats_guard = stats.lock().unwrap();
@@ -209,7 +246,7 @@ fn capture_packets(
                                 }
 
                                 // Check if destination is local (RX)
-                                if is_local_ip(&dst_ip) {
+                                if local_subnets.is_local(&dst_ip) {
                                     let nic = get_nic_for_ip(&dst_ip, &status_guard);
                                     let key = format!("{}:{}", nic, dst_ip);
                                     let mut stats_guard = stats.lock().unwrap();
@@ -228,26 +265,6 @@ fn capture_packets(
             }
         }
     });
-}
-
-fn is_local_ip(ip: &str) -> bool {
-    // Check if IP is in private ranges
-    if let Ok(addr) = ip.parse::<Ipv4Addr>() {
-        let octets = addr.octets();
-        // 10.0.0.0/8
-        if octets[0] == 10 {
-            return true;
-        }
-        // 172.16.0.0/12
-        if octets[0] == 172 && (octets[1] >= 16 && octets[1] <= 31) {
-            return true;
-        }
-        // 192.168.0.0/16
-        if octets[0] == 192 && octets[1] == 168 {
-            return true;
-        }
-    }
-    false
 }
 
 async fn refresh_mappings(status: Arc<Mutex<StatusResponse>>) {
@@ -271,6 +288,18 @@ async fn refresh_mappings(status: Arc<Mutex<StatusResponse>>) {
 #[tokio::main]
 async fn main() {
     tracing_subscriber::fmt::init();
+
+    // Parse local subnets from constant
+    let mut local_subnets_obj = LocalSubnets::new();
+
+    for subnet in LOCAL_SUBNETS {
+        match local_subnets_obj.add_subnet(subnet) {
+            Ok(_) => info!("Added local subnet: {}", subnet),
+            Err(e) => error!("Failed to parse subnet '{}': {}", subnet, e),
+        }
+    }
+
+    let local_subnets = Arc::new(local_subnets_obj);
 
     // Register metrics
     REGISTRY
@@ -311,7 +340,12 @@ async fn main() {
 
     // Start packet capture
     let capture_interface = initial_status.config.wan0.clone();
-    capture_packets(capture_interface, stats.clone(), status.clone());
+    capture_packets(
+        capture_interface,
+        stats.clone(),
+        status.clone(),
+        local_subnets.clone(),
+    );
 
     // Start metrics updater
     let stats_clone = stats.clone();
@@ -336,4 +370,6 @@ async fn main() {
     info!("Prometheus metrics server listening on http://0.0.0.0:59122/metrics");
 
     axum::serve(listener, app).await.unwrap();
+
+    info!("version: {}", VERSION);
 }

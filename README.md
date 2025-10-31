@@ -79,6 +79,22 @@ sudo systemctl status localpacketdump.service
 sudo systemctl stop localpacketdump.service
 ```
 
+## ローカルサブネットの設定
+
+ローカル IP アドレスのサブネットは `src/main.rs` の定数 `LOCAL_SUBNETS` で指定します:
+
+```rust
+// ローカルサブネットの定義（CIDR 形式で指定）
+const LOCAL_SUBNETS: &[&str] = &[
+    "10.40.0.0/24",
+    // 必要に応じて追加
+    // "192.168.1.0/24",
+    // "172.16.0.0/16",
+];
+```
+
+この定数を編集して、監視したいローカルサブネットを指定してください。複数のサブネットを配列として指定できます。
+
 ## NIC マッピング
 
 プログラムは `http://localhost:32599/status` から以下の形式で NIC マッピング情報を取得します:
@@ -99,6 +115,7 @@ sudo systemctl stop localpacketdump.service
 - `mappings` に含まれる IP はそれぞれ指定された wan に割り当てられます
 - `mappings` に含まれない IP は全て `wan0` に割り当てられます
 - マッピング情報は 10 秒ごとに自動更新されます
+- **注意**: NIC マッピングはメトリクスのラベル付けにのみ使用され、ローカル IP の判定には使用されません
 
 ## トラブルシューティング
 
