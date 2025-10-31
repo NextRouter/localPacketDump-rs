@@ -339,7 +339,7 @@ async fn main() {
     let status = Arc::new(Mutex::new(initial_status.clone()));
 
     // Start packet capture
-    let capture_interface = initial_status.config.wan0.clone();
+    let capture_interface = initial_status.config.lan.clone();
     capture_packets(
         capture_interface,
         stats.clone(),
