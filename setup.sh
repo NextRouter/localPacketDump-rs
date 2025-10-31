@@ -1,12 +1,31 @@
 #!/bin/bash
 
+# Check for test mode
+if [ "$1" = "test" ]; then
+    echo "Running in test mode..."
+    /home/user/.cargo/bin/cargo build --release
+    if [ $? -ne 0 ]; then
+        echo "Build failed. Exiting."
+        exit 1
+    fi
+    
+    echo "Starting localpacketdump in test mode..."
+    echo "Note: This requires root privileges to capture packets."
+    echo "Press Ctrl+C to stop."
+    sudo ./target/release/localpacketdump
+    exit 0
+fi
+
+# Normal setup mode
+echo "Building localpacketdump..."
+
+/home/user/.cargo/bin/cargo build --release
+
 # Check if build was successful
 if [ $? -ne 0 ]; then
     echo "Build failed. Exiting."
     exit 1
 fi
-
-/home/user/.cargo/bin/cargo build --release
 
 # Create systemd service file
 echo "Creating systemd service..."
@@ -37,9 +56,16 @@ User=root
 WantedBy=multi-user.target
 EOF
 
-# Reload systemd and enable the service
-sudo systemctl daemon-reload
-sudo systemctl enable localpacketdump.service
+# Check if running on Linux with systemd
+if command -v systemctl &> /dev/null; then
+    # Reload systemd and enable the service
+    sudo systemctl daemon-reload
+    sudo systemctl enable localpacketdump.service
 
-echo "Service created and enabled. You can start it with:"
-echo "sudo systemctl start localpacketdump.service"
+    echo "Service created and enabled. You can start it with:"
+    echo "sudo systemctl start localpacketdump.service"
+else
+    echo "systemd not found. Service file created but not installed."
+    echo "To run manually, execute:"
+    echo "sudo ./target/release/localpacketdump"
+fi

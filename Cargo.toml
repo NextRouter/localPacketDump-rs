@@ -1,0 +1,17 @@
+[package]
+name = "localpacketdump"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+pcap = "1.1"
+tokio = { version = "1.35", features = ["full"] }
+axum = "0.7"
+prometheus = "0.13"
+lazy_static = "1.4"
+reqwest = { version = "0.11", features = ["json"] }
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+pnet = "0.34"
+tracing = "0.1"
+tracing-subscriber = "0.3"
