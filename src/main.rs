@@ -367,9 +367,9 @@ async fn main() {
         .await
         .unwrap();
 
+    info!("version: {}", VERSION);
+
     info!("Prometheus metrics server listening on http://0.0.0.0:59122/metrics");
 
     axum::serve(listener, app).await.unwrap();
-
-    info!("version: {}", VERSION);
 }
