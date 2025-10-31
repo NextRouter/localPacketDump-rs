@@ -1,7 +1,4 @@
 #!/bin/bash
-
-/home/user/.cargo/bin/cargo build --release
-
 # Check if build was successful
 if [ $? -ne 0 ]; then
     echo "Build failed. Exiting."
