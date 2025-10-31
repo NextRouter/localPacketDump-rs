@@ -1,24 +1,5 @@
 #!/bin/bash
 
-# Check for test mode
-if [ "$1" = "test" ]; then
-    echo "Running in test mode..."
-    /home/user/.cargo/bin/cargo build --release
-    if [ $? -ne 0 ]; then
-        echo "Build failed. Exiting."
-        exit 1
-    fi
-    
-    echo "Starting localpacketdump in test mode..."
-    echo "Note: This requires root privileges to capture packets."
-    echo "Press Ctrl+C to stop."
-    sudo ./target/release/localpacketdump
-    exit 0
-fi
-
-# Normal setup mode
-echo "Building localpacketdump..."
-
 /home/user/.cargo/bin/cargo build --release
 
 # Check if build was successful
